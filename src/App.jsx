@@ -15,8 +15,8 @@ import "./styles.css";
 // ESP32
 // =====================================================
 
-const ESP32_IP = "10.149.179.1";
-const API_URL = `http://${ESP32_IP}/api/data`;
+const API_URL =
+  "https://coldguard-ai-backend.onrender.com/api/esp32/data";
 
 const SAP_API_URL =
   import.meta.env.VITE_SAP_API_URL ||
@@ -33,7 +33,7 @@ const DEFAULT_WAREHOUSE = {
   id: "warehouse1",
   name: "Warehouse 1",
   deviceId: "ColdGuard-01",
-  ip: ESP32_IP,
+  ip: "Cloud via Render",
 };
 
 const normalizeWarehouseIp = (value) => {
@@ -629,28 +629,54 @@ function App() {
 
   // ===================================================
   // LIVE ESP32 DATA
-  // Warehouse 1 uses the main ESP32. Added warehouses use the IP
-  // entered by the user and expose the same /api/data contract.
+  // Warehouse 1 reads the ESP32 data through the Render backend.
+  // Added warehouses keep the older direct-IP behaviour.
   // ===================================================
 
   useEffect(() => {
     let mounted = true;
 
     const fetchWarehouseData = async (warehouse) => {
-      if (!warehouse?.ip) return;
+      if (!warehouse) return;
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
+      const timeout = setTimeout(() => controller.abort(), 5000);
 
       try {
-        const response = await fetch(`http://${normalizeWarehouseIp(warehouse.ip)}/api/data`, {
-          method: "GET",
-          cache: "no-store",
-          signal: controller.signal,
-        });
+        let response;
+        let data;
 
-        if (!response.ok) throw new Error("ESP32 API error");
-        const data = await response.json();
+        if (warehouse.id === "warehouse1") {
+          response = await fetch(API_URL, {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          });
+
+          if (!response.ok) throw new Error("ESP32 Cloud API error");
+
+          const result = await response.json();
+
+          if (result.status !== "online" || !result.data) {
+            throw new Error("ESP32 cloud data not available yet");
+          }
+
+          data = result.data;
+        } else {
+          if (!warehouse?.ip) return;
+
+          response = await fetch(
+            `http://${normalizeWarehouseIp(warehouse.ip)}/api/data`,
+            {
+              method: "GET",
+              cache: "no-store",
+              signal: controller.signal,
+            }
+          );
+
+          if (!response.ok) throw new Error("ESP32 API error");
+          data = await response.json();
+        }
 
         if (
           data.temperatureA === undefined ||
@@ -680,13 +706,19 @@ function App() {
                 ...prev[warehouse.id].chambers.A,
                 temperature: Number.isFinite(tempA) ? tempA : null,
                 humidity: Number.isFinite(hum) ? hum : null,
-                status: true,
+                status:
+                  typeof data.chamberA === "boolean"
+                    ? data.chamberA
+                    : true,
               },
               B: {
                 ...prev[warehouse.id].chambers.B,
                 temperature: Number.isFinite(tempB) ? tempB : null,
                 humidity: Number.isFinite(hum) ? hum : null,
-                status: true,
+                status:
+                  typeof data.chamberB === "boolean"
+                    ? data.chamberB
+                    : true,
               },
             },
           },
@@ -695,20 +727,27 @@ function App() {
         if (warehouse.id === "warehouse1") {
           setTemperatureHistory((previous) => {
             const point = {
-              time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+              time: now.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              }),
               A: Number.isFinite(tempA) ? tempA : null,
               B: Number.isFinite(tempB) ? tempB : null,
             };
+
             return [...previous, point].slice(-900);
           });
         }
       } catch (error) {
         console.log(`${warehouse.name} ESP32 DISCONNECTED:`, error.message);
+
         if (!mounted) return;
 
         setWarehouses((prev) => {
           const existing = prev[warehouse.id];
           if (!existing) return prev;
+
           return {
             ...prev,
             [warehouse.id]: {
@@ -718,8 +757,18 @@ function App() {
               sensorData: null,
               chambers: {
                 ...existing.chambers,
-                A: { ...existing.chambers.A, temperature: null, humidity: null, status: false },
-                B: { ...existing.chambers.B, temperature: null, humidity: null, status: false },
+                A: {
+                  ...existing.chambers.A,
+                  temperature: null,
+                  humidity: null,
+                  status: false,
+                },
+                B: {
+                  ...existing.chambers.B,
+                  temperature: null,
+                  humidity: null,
+                  status: false,
+                },
               },
             },
           };
@@ -874,23 +923,27 @@ function App() {
   // ===================================================
 
   const batteryPercentage = Number.isFinite(
-    Number(sensorData?.battery_percentage)
+    Number(sensorData?.battery)
   )
-    ? Number(sensorData.battery_percentage)
-    : 68;
+    ? Number(sensorData.battery)
+    : null;
 
   const batteryVoltage = Number.isFinite(
-    Number(sensorData?.battery_voltage)
+    Number(sensorData?.adapterVoltage)
   )
-    ? Number(sensorData.battery_voltage)
+    ? Number(sensorData.adapterVoltage)
     : null;
 
   // ===================================================
   // POWER SOURCE
   // ===================================================
 
-  const powerSource = String(sensorData?.powersource ?? "adapter");
-  const gridNormal = powerSource.toLowerCase() !== "battery";
+  const powerSource = String(sensorData?.powerSource ?? "");
+
+  const gridNormal =
+    current.connected &&
+    sensorData?.adapterAvailable === true &&
+    powerSource.toUpperCase() === "ADAPTER";
 
   // ===================================================
   // FIXED PROJECT VALUES
@@ -1063,8 +1116,8 @@ function App() {
           <p>Device ID</p>
           <strong>{current.deviceId}</strong>
 
-          <p>IP Address</p>
-          <strong>{current.ip}</strong>
+          <p>{isWarehouse1 ? "Connection" : "IP Address"}</p>
+          <strong>{isWarehouse1 ? "Render Cloud API" : current.ip}</strong>
 
           <p>Last Update</p>
           <strong>{lastUpdateText}</strong>
@@ -1309,7 +1362,9 @@ function App() {
               <div className="metric">
                 <span>BATTERY</span>
                 <strong className="green">
-                  {current.connected ? `${batteryPercentage}%` : "--"}
+                  {current.connected && batteryPercentage !== null
+                    ? `${batteryPercentage}%`
+                    : "--"}
                 </strong>
                 <small>
                   {current.connected && batteryVoltage !== null
