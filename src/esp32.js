@@ -1,13 +1,18 @@
-const ESP32_IP = "10.32.170.1";
+const API_URL =
+  "https://coldguard-ai-backend.onrender.com/api/esp32/data";
 
 export async function getESP32Data() {
-  const response = await fetch(
-    `http://${ESP32_IP}/api/data`
-  );
+  const response = await fetch(API_URL);
 
   if (!response.ok) {
-    throw new Error("ESP32 API error");
+    throw new Error("ESP32 Cloud API error");
   }
 
-  return await response.json();
+  const result = await response.json();
+
+  if (result.status !== "online" || !result.data) {
+    throw new Error("ESP32 data not available yet");
+  }
+
+  return result.data;
 }
