@@ -17,9 +17,14 @@ import "./styles.css";
 
 const ESP32_IP = "10.149.179.1";
 const API_URL = `http://${ESP32_IP}/api/data`;
-const SAP_API_URL = import.meta.env.VITE_SAP_API_URL || "http://localhost:8000/api/sap-warehouse";
-const SAP_MANAGER_API_URL = import.meta.env.VITE_SAP_MANAGER_API_URL || "http://localhost:8000/api/sap-warehouse-manager";
 
+const SAP_API_URL =
+  import.meta.env.VITE_SAP_API_URL ||
+  "https://coldguard-ai-backend.onrender.com/api/sap-warehouse";
+
+const SAP_MANAGER_API_URL =
+  import.meta.env.VITE_SAP_MANAGER_API_URL ||
+  "https://coldguard-ai-backend.onrender.com/api/sap-warehouse-manager";
 // =====================================================
 // WAREHOUSES
 // =====================================================
